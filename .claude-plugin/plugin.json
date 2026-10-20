@@ -68,6 +68,24 @@
       "description": "Characters of a tool result kept when System One decides its full output is no longer needed; 0 keeps only the note.",
       "default": 300
     },
+    "bashOutput": {
+      "type": "boolean",
+      "title": "Trim Bash output",
+      "description": "Ask System One which chunks of a long Bash output still matter and drop the rest before the model sees it.",
+      "default": false
+    },
+    "bashOutputMinChars": {
+      "type": "number",
+      "title": "Minimum Bash output characters",
+      "description": "Bash outputs at or below this length pass through untouched.",
+      "default": 4000
+    },
+    "bashOutputChunkLines": {
+      "type": "number",
+      "title": "Bash output chunk lines",
+      "description": "Number of Bash output lines grouped into each chunk System One scores.",
+      "default": 20
+    },
     "model": {
       "type": "string",
       "title": "Model",

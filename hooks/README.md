@@ -24,6 +24,21 @@ nothing is written at all unless the compaction is the one that gets used, so
 a run that falls back to the built-in summary leaves no files. Set
 `archiveResults` to `false` to drop output outright as before.
 
+Setting `bashOutput` to `true` adds a second handler, on `tool.call` for Bash.
+Any stdout longer than `bashOutputMinChars` is split into chunks of
+`bashOutputChunkLines` lines, System One scores each one, and the runs it says
+are not needed collapse into a marker naming the lines dropped and the file
+holding them. The first chunk, the last, and anything matching an error word
+are always kept, as is anything the state could not hold: a chunk that was
+never scored is kept, never dropped. stderr is left alone. Output the engine
+already spilled to a file is skipped, and output that looks like credentials
+(or came from a command asking for them) is trimmed but never written to disk,
+so its marker says to re-run the command instead. Every failure falls through
+to the untouched output.
+
+This costs one round trip per long Bash output, which is why it is off by
+default.
+
 The state is fitted into `maxStateTokens` in stages: tool inputs are
 truncated, then long texts are abridged (oldest first, pinned messages last),
 then old messages collapse to a `[… N chars omitted …]` note, then old tool
@@ -71,6 +86,9 @@ The plugin declares these `userConfig` values in
 | `maxRequestChars` | unset (no limit) |
 | `truncateHeadChars` | `300` |
 | `archiveResults` | `true` |
+| `bashOutput` | `false` |
+| `bashOutputMinChars` | `4000` |
+| `bashOutputChunkLines` | `20` |
 | `model` | `jev-latest` |
 | `baseUrl` | `https://api.typesafe.ai/v1/systemone` |
 

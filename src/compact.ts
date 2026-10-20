@@ -29,9 +29,9 @@ export const DEFAULT_OPTIONS: ResolvedCompactOptions = {
 };
 
 /** Tokens the request envelope (`model`, key names) adds around state and questions. */
-const REQUEST_OVERHEAD_TOKENS = 20;
+export const REQUEST_OVERHEAD_TOKENS = 20;
 /** Characters of that same envelope; `{"model":"jev-latest","state":"","questions":{}}` is 48. */
-const REQUEST_OVERHEAD_CHARS = 50;
+export const REQUEST_OVERHEAD_CHARS = 50;
 /**
  * Room one call's pair of questions needs. The longest tool name seen so far
  * (a 49-character MCP name) costs 156 tokens in 493 characters.

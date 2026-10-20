@@ -66,7 +66,15 @@ function systemOneFetch(
 
 describe('hook config', () => {
   it('reads userConfig values and falls back to defaults', () => {
-    expect(resolveHookConfig({})).toEqual({ archiveResults: true, compactAtPercent: 60, minReductionRatio: 0.25, model: 'jev-latest' });
+    expect(resolveHookConfig({})).toEqual({
+      archiveResults: true,
+      bashOutput: false,
+      bashOutputMinChars: 4_000,
+      bashOutputChunkLines: 20,
+      compactAtPercent: 60,
+      minReductionRatio: 0.25,
+      model: 'jev-latest',
+    });
     expect(
       resolveHookConfig({ apiKey: 'k', baseUrl: 'http://local/v1/systemone', keepThreshold: 0.3, maxStateTokens: 1000, maxRequestChars: 22_937, model: 'jev-x', goal: 'g', compactAtPercent: 'no' }),
     ).toEqual({
@@ -78,10 +86,16 @@ describe('hook config', () => {
       model: 'jev-x',
       goal: 'g',
       archiveResults: true,
+      bashOutput: false,
+      bashOutputMinChars: 4_000,
+      bashOutputChunkLines: 20,
       compactAtPercent: 60,
       minReductionRatio: 0.25,
     });
     expect(resolveHookConfig({ archiveResults: false }).archiveResults).toBe(false);
+    expect(
+      resolveHookConfig({ bashOutput: true, bashOutputMinChars: 100, bashOutputChunkLines: 5 }),
+    ).toMatchObject({ bashOutput: true, bashOutputMinChars: 100, bashOutputChunkLines: 5 });
     expect(resolveHookConfig({ archiveResults: 'yes' }).archiveResults).toBe(true);
   });
 

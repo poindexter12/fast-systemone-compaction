@@ -10,7 +10,9 @@ import type {
 } from 'claude-code';
 
 import { compact, reductionRatio, resolveOptions } from '../src/compact.js';
+import { trimOutput } from '../src/output.js';
 import { buildSystemOneRequest, DEFAULT_MODEL, parseSystemOneResponse } from '../src/request.js';
+import { goalFromMessages } from '../src/state.js';
 import type {
   ArchiveResult,
   CompactOptions,
@@ -23,6 +25,9 @@ import type {
 
 const HOOK_DEFAULTS = {
   archiveResults: true,
+  bashOutput: false,
+  bashOutputMinChars: 4_000,
+  bashOutputChunkLines: 20,
   compactAtPercent: 60,
   minReductionRatio: 0.25,
   model: DEFAULT_MODEL,
@@ -46,6 +51,9 @@ export type HookFetch = (url: string, init?: HookFetchInit) => Promise<HookFetch
 export type HookConfig = CompactOptions & {
   apiKey?: string;
   archiveResults: boolean;
+  bashOutput: boolean;
+  bashOutputMinChars: number;
+  bashOutputChunkLines: number;
   baseUrl?: string;
   compactAtPercent: number;
   minReductionRatio: number;
@@ -60,6 +68,11 @@ function optionNumber(options: PluginOptions, key: string, fallback: number): nu
 function optionString(options: PluginOptions, key: string): string | undefined {
   const value = options[key];
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function optionBoolean(options: PluginOptions, key: string, fallback: boolean): boolean {
+  const value = options[key];
+  return typeof value === 'boolean' ? value : fallback;
 }
 
 /** Reads the plugin's `userConfig` values; anything missing takes the defaults. */
@@ -82,6 +95,17 @@ export function resolveHookConfig(options: PluginOptions): HookConfig {
       typeof options['archiveResults'] === 'boolean'
         ? options['archiveResults']
         : HOOK_DEFAULTS.archiveResults,
+    bashOutput: optionBoolean(options, 'bashOutput', HOOK_DEFAULTS.bashOutput),
+    bashOutputMinChars: optionNumber(
+      options,
+      'bashOutputMinChars',
+      HOOK_DEFAULTS.bashOutputMinChars,
+    ),
+    bashOutputChunkLines: optionNumber(
+      options,
+      'bashOutputChunkLines',
+      HOOK_DEFAULTS.bashOutputChunkLines,
+    ),
     compactAtPercent: optionNumber(options, 'compactAtPercent', HOOK_DEFAULTS.compactAtPercent),
     minReductionRatio: optionNumber(
       options,
@@ -212,6 +236,35 @@ export function looksSecret(output: string): boolean {
   return SECRET_OUTPUT.test(output.slice(0, 20_000));
 }
 
+/**
+ * Matches a command whose output is likely to carry credentials whatever the
+ * output itself looks like. Only Bash trimming can check this: compaction is
+ * offered a tool result long after the command that produced it.
+ */
+const SECRET_COMMAND =
+  /(^|[|;&]\s*)(printenv|env)\b|\.env\b|\b(secret|secrets|credential|credentials|password|token|keychain|netrc|id_rsa|private[_-]?key)\b/i;
+
+/** True when the command looks like it asks for credentials. */
+export function looksSecretCommand(command: string): boolean {
+  return SECRET_COMMAND.test(command);
+}
+
+type ArchiveFs = {
+  fs: {
+    exists: (path: string) => Promise<boolean>;
+    write: (path: string, text: string) => Promise<void>;
+  };
+};
+
+/** Writes archived output, creating the directory's `.gitignore` on first use. */
+async function writeArchived($: ArchiveFs, files: Iterable<[string, string]>): Promise<void> {
+  const entries = [...files];
+  if (entries.length === 0) return;
+  const ignorePath = `${ARCHIVE_DIR}/.gitignore`;
+  if (!(await $.fs.exists(ignorePath))) await $.fs.write(ignorePath, '*\n');
+  for (const [path, text] of entries) await $.fs.write(path, text);
+}
+
 export type ArchiveWriter = {
   /** Names the file a dropped output will be written to, for its marker. */
   cite: ArchiveResult;
@@ -225,12 +278,7 @@ export type ArchiveWriter = {
  * flush, so a compaction the caller discards leaves nothing behind.
  * Credentials are never written.
  */
-export function archiveWriter($: {
-  fs: {
-    exists: (path: string) => Promise<boolean>;
-    write: (path: string, text: string) => Promise<void>;
-  };
-}): ArchiveWriter {
+export function archiveWriter($: ArchiveFs): ArchiveWriter {
   const pending = new Map<string, string>();
   return {
     cite(toolUseId, text) {
@@ -240,10 +288,7 @@ export function archiveWriter($: {
       return path;
     },
     async flush() {
-      if (pending.size === 0) return;
-      const ignorePath = `${ARCHIVE_DIR}/.gitignore`;
-      if (!(await $.fs.exists(ignorePath))) await $.fs.write(ignorePath, '*\n');
-      for (const [path, text] of pending) await $.fs.write(path, text);
+      await writeArchived($, pending);
       pending.clear();
     },
   };
@@ -354,6 +399,75 @@ function notify(
 export const register: Register = (on: On, options: PluginOptions) => {
   const configured = resolveHookConfig(options);
   let compacting = false;
+
+  if (configured.bashOutput) {
+    on('tool.call', { tool: 'Bash' }, async ($, event, next) => {
+      const answer = await next(event);
+      try {
+        if (answer.deny !== undefined || answer.isError || !answer.result) return answer;
+        const record = answer.result;
+        // Output the engine already spilled to a file is not in the context to
+        // begin with, so there is nothing to save by trimming it.
+        if (record.persistedOutputPath) return answer;
+        // stdout only, the whole way through: the threshold, what is trimmed
+        // and what is archived. stderr is where a failure announces itself and
+        // is rarely long, so it is never touched and never counted.
+        const stdout = record.stdout ?? '';
+        if (stdout.length <= configured.bashOutputMinChars) return answer;
+        const apiKey = await getApiKey($, configured);
+        if (!apiKey) return answer;
+        // Secret output is still trimmed, but nothing is written: the marker
+        // tells the agent to re-run the command rather than naming a file that
+        // would outlive the session.
+        const secret = looksSecretCommand(event.command) || looksSecret(stdout);
+        const path = secret
+          ? undefined
+          : `${ARCHIVE_DIR}/bash-${event.tool_use_id ?? Date.now()}.txt`;
+        const trimmed = await trimOutput(
+          {
+            command: event.command,
+            goal: configured.goal ?? goalFromMessages(await $.session.messages()),
+            output: stdout,
+            fullOutputPath: path,
+          },
+          systemOneAsker(
+            async (url, init) => {
+              const response = await $.http.fetch(url, init);
+              return { status: response.status, ok: response.ok, text: response.text };
+            },
+            apiKey,
+            configured.model,
+            configured.baseUrl,
+          ),
+          {
+            minChars: configured.bashOutputMinChars,
+            chunkLines: configured.bashOutputChunkLines,
+            keepThreshold: configured.keepThreshold,
+            maxStateTokens: configured.maxStateTokens,
+            maxRequestTokens: configured.maxRequestTokens,
+            maxRequestChars: configured.maxRequestChars,
+          },
+        );
+        if (!trimmed.trimmed) return answer;
+        // Written only now, so output that came back untrimmed leaves nothing.
+        if (path) await writeArchived($, [[path, stdout]]);
+        const scores = trimmed.scores.map((score) => score.toFixed(2)).join(',');
+        $.ui.log(
+          `bash output: kept ${trimmed.kept}/${trimmed.chunks} chunks (${trimmed.charsBefore}→${trimmed.charsAfter} chars) scores=${scores}`,
+        );
+        $.ui.toast(
+          `trimmed Bash output ${trimmed.charsBefore}→${trimmed.charsAfter} chars`,
+          { timeoutMs: 8_000 },
+        );
+        return { result: { ...record, stdout: trimmed.output } };
+      } catch (error) {
+        $.ui.log(
+          `bash output trim skipped (${error instanceof Error ? error.message : String(error)})`,
+        );
+        return answer;
+      }
+    });
+  }
 
   on('session.compact', async ($, event, next) => {
     try {

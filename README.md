@@ -118,6 +118,13 @@ put it in a source file.
 | `truncateHeadChars` | `300` | Characters of a dropped tool result retained before its note |
 | `archive` | unset | Callback offered every dropped output; the path it returns is cited in the marker |
 
+`trimOutput(input, asker, options)` is the same idea for one command's output
+rather than a transcript: it chunks the text, asks System One which chunks the
+agent still needs, and collapses the rest into a marker. It takes `minChars`
+and `chunkLines` beside the budgets above, and returns the trimmed output with
+the per-chunk scores. The plugin's `bashOutput` option is the hook that uses
+it.
+
 `result.stats` reports message and character counts before and after, the
 per-reason decision counts, the state size in estimated tokens, which fitting
 stage was needed, and the number of requests.
@@ -164,6 +171,10 @@ auto-compaction) goes through System One: the toast reads
 `fast-systemone-compaction: kept N/M messages, no summary (…)` when the pruned history
 replaced the built-in summary, or `fallback to built-in summary (…)` when System One
 could not remove enough (short sessions, or when it fails).
+
+Turning on the `bashOutput` option adds opt-in trimming of long Bash output at
+the moment the command returns, described in `hooks/README.md`. It is off by
+default because it costs a round trip per long output.
 
 To run from a checkout without installing: `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir .`
 from the repository root. No publishing step is required; the marketplace is
