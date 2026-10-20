@@ -1,6 +1,6 @@
 # Architecture
 
-*Last Updated: 2026-10-15*
+*Last Updated: 2026-10-20*
 
 ## Two artifacts, one tree
 
@@ -13,13 +13,14 @@ hooks/hooks.json             { "modules": ["./fast-systemone.ts"] }
 hooks/fast-systemone.ts      adapter: userConfig -> options, SessionMessage <-> Message, fallback
         |
         v  imports ../src/*.js
-src/index.ts                 barrel re-exporting all seven modules
+src/index.ts                 barrel re-exporting all eight modules
 src/types.ts                 every shape; no behaviour
 src/request.ts               URL/body construction, response validation, noulAnswer
 src/client.ts                SystemOneClient: a SystemOneAsker over global fetch
 src/text.ts                  surrogate-safe slice boundaries (wellFormedEnd/Start), a leaf
 src/state.ts                 token estimate, call pairing, the state-fitting ladder
 src/compact.ts               option resolution, question building, batching, decisions, rebuild
+src/output.ts                trimOutput: chunk one command's output, score chunks, collapse runs
 src/messages.ts              compactMessages: compact + a client, for library callers
 ```
 
@@ -158,16 +159,25 @@ above the true length. It is left alone because it errs toward the safe side, an
 
 ## The hook, and what happens when it fails
 
-`hooks/fast-systemone.ts` registers two handlers:
+`hooks/fast-systemone.ts` registers three handlers, one of them conditionally:
 
 - **`session.compact`** resolves the API key (plugin `apiKey`, then `TYPESAFE_API_KEY` from the
   environment, then `env.TYPESAFE_API_KEY` in settings), passes `archiveWriter($)` unless
   `archiveResults` is off, runs `compactSession`, logs the per-call decisions, and returns the rewritten messages. If the reduction comes in under
   `minReductionRatio` (default 0.25), or anything throws, it calls `next(event)` and lets Claude
   Code's own summarising compaction run instead. Every fallback is announced through `$.ui.log`
-  plus a toast, so a silent degradation is not possible.
+  plus a toast, so a silent degradation is not possible. It registers with no trigger matcher, so
+  it takes every trigger the host dispatches: `manual` for `/compact`, `auto` at the context limit,
+  and `precompute` for idle compaction, which is computed ahead of time and installed only if the
+  conversation still leads. `outcomeNotice()` reads `event.trigger` so the toast does not claim a
+  precomputed result landed.
 - **`turn.complete`** reads `$.session.usage()` and calls `$.session.compact()` once context passes
   `compactAtPercent` (default 60). A `compacting` flag guards against re-entry.
+- **`tool.call`**, matched on `{ tool: 'Bash' }`, is registered only when the `bashOutput` option is
+  on, so a default install carries two handlers and behaves exactly as it did before the option
+  existed. It runs `trimOutput` over `record.stdout` once the result exceeds `bashOutputMinChars`
+  (default 4000), leaving stderr untouched and uncounted. A command or output that looks like it
+  carries a secret is trimmed to a marker telling the agent to re-run it, and nothing is archived.
 
 `compactAtPercent` and `minReductionRatio` are host policy and live only in the hook. The library
 has no opinion about when to compact or whether the result was good enough.

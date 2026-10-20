@@ -1,6 +1,6 @@
 # Patterns and conventions
 
-*Last Updated: 2026-10-13*
+*Last Updated: 2026-10-20*
 
 There is no linter and no formatter in this repo, so the conventions below are tacit: they live in
 the existing code and nothing enforces them but review. Match what is there.
@@ -78,13 +78,15 @@ function actually reads and keeps the tests honest, since a test can pass exactl
 
 ## Testing
 
-Three suites under `tests/`, all offline:
+Five suites under `tests/`, all offline:
 
 | Suite | Covers |
 |---|---|
 | `fast-systemone-compaction.test.ts` | the library: options, token estimate, call pairing, every fitting stage, batching, decisions, `compact` end to end, and the HTTP client against an injected `fetch` |
 | `hook.test.ts` | the adapter: `resolveHookConfig`, `toSessionMessages` object identity, `compactSession` over a fake engine fetch, endpoint routing, and that failures throw so the hook falls back |
+| `output.test.ts` | `trimOutput`: chunking, the keep/drop boundary, the marker, the archive hand-off, and that one request never exceeds a char cap |
 | `naming.test.ts` | the model-versus-protocol naming line, over `src/` and `hooks/` |
+| `version.test.ts` | that the one version agrees across `package.json`, both plugin manifests, and the lockfile |
 
 Patterns worth copying:
 
