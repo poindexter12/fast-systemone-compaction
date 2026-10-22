@@ -180,11 +180,25 @@ To run from a checkout without installing: `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 
 from the repository root. No publishing step is required; the marketplace is
 just the repo's `.claude-plugin/marketplace.json`.
 
+## omp plugin
+
+`omp/` is an [oh-my-pi](https://omp.sh) extension. On `session_before_compact` it runs the same library over the messages omp was about to summarize and replaces omp's summary with those messages verbatim. Scoring uses omp's built-in judge (the `judge` model role: native System One when that role has it, otherwise the text bridge), so this plugin does not read `TYPESAFE_API_KEY`.
+
+omp can only substitute a summary string, not the message list, so the kept span is rendered as text. The newest messages omp already held back stay real messages.
+
+```yaml
+# ~/.omp/agent/config.yml
+extensions:
+  - /path/to/fast-systemone-compaction/omp
+```
+
+`omp/package.json` declares `omp.extensions` and two `omp.settings` numbers: `keepThreshold` (0.5) and `truncateHeadChars` (300). Install the `omp/` directory with omp's plugin installer, then set them under Settings → Plugins. The extension reads the saved values from `~/.omp/plugins/omp-plugins.lock.json`, with `.omp/plugin-overrides.json` winning for the same key. On Linux, after `omp config migrate`, the lockfile is under `$XDG_DATA_HOME/omp/plugins` instead. An `extensions:` path that was never installed still runs, using those defaults. The verbatim result is always stored. omp's trigger (the token limit when one is set, otherwise the percentage) and the same 80% recovery line decide what happens next. Still above that line, the extension starts a second compaction after the first pass finishes and stays out of it, so the method order summarizes the history that already keeps the verbatim result. A failed judge request leaves the first pass to omp.
+
 ## Development
 
 ```sh
 npm install
-npm run typecheck        # library + hook
+npm run typecheck        # library + hook + omp extension
 npm test
 npm run build
 npm run validate:plugin  # claude plugin validate
