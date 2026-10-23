@@ -85,7 +85,7 @@ function actually reads and keeps the tests honest, since a test can pass exactl
 
 ## Testing
 
-Nine suites under `tests/`, 88 tests, all offline:
+Nine suites under `tests/`, 93 tests, all offline:
 
 | Suite | Covers |
 |---|---|
