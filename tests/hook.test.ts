@@ -76,11 +76,12 @@ describe('hook config', () => {
       model: 'jev-latest',
     });
     expect(
-      resolveHookConfig({ apiKey: 'k', baseUrl: 'http://local/v1/systemone', keepThreshold: 0.3, maxStateTokens: 1000, maxRequestChars: 22_937, model: 'jev-x', goal: 'g', compactAtPercent: 'no' }),
+      resolveHookConfig({ apiKey: 'k', baseUrl: 'http://local/v1/systemone', keepThreshold: 0.3, protectThreshold: 0.8, maxStateTokens: 1000, maxRequestChars: 22_937, model: 'jev-x', goal: 'g', compactAtPercent: 'no' }),
     ).toEqual({
       apiKey: 'k',
       baseUrl: 'http://local/v1/systemone',
       keepThreshold: 0.3,
+      protectThreshold: 0.8,
       maxStateTokens: 1000,
       maxRequestChars: 22_937,
       model: 'jev-x',
@@ -115,8 +116,8 @@ describe('session message mapping', () => {
     const messages = transcript();
     const calls = collectToolCalls(messages, 0);
     const decisions = [
-      decideCall(calls[0]!, { keepCall: 0.9, keepResult: 0.1 }, { keepThreshold: 0.5 }),
-      decideCall(calls[1]!, { keepCall: 0.9, keepResult: 0.9 }, { keepThreshold: 0.5 }),
+      decideCall(calls[0]!, { keepCall: 0.9, keepResult: 0.1, protect: 0 }, { keepThreshold: 0.5, protectThreshold: 0.7 }),
+      decideCall(calls[1]!, { keepCall: 0.9, keepResult: 0.9, protect: 0 }, { keepThreshold: 0.5, protectThreshold: 0.7 }),
     ];
     messages[1]!.toolUses[0]!.text = 'x'.repeat(2000);
     messages[2]!.toolResults![0]!.text = 'x'.repeat(2000);
@@ -142,8 +143,8 @@ describe('session message mapping', () => {
     messages[2]!.toolResults![0]!.text = 'y'.repeat(100);
     const calls = collectToolCalls(messages, 0);
     const decisions = [
-      decideCall(calls[0]!, { keepCall: 0.9, keepResult: 0.1 }, { keepThreshold: 0.5 }),
-      decideCall(calls[1]!, { keepCall: 0.9, keepResult: 0.9 }, { keepThreshold: 0.5 }),
+      decideCall(calls[0]!, { keepCall: 0.9, keepResult: 0.1, protect: 0 }, { keepThreshold: 0.5, protectThreshold: 0.7 }),
+      decideCall(calls[1]!, { keepCall: 0.9, keepResult: 0.9, protect: 0 }, { keepThreshold: 0.5, protectThreshold: 0.7 }),
     ];
     const out = toSessionMessages(messages, applyDecisions(messages, decisions, calls, 300));
     expect(out[1]).toBe(messages[1]);

@@ -14,8 +14,14 @@ import type { OmpPluginSettings } from '../src/plugin-settings.js';
 
 /** Hoisted so the module mocks below, which run before the imports, can reach it. */
 const host = vi.hoisted(() => ({
-  /** Probability the stub judge answers every question with. */
+  /** Probability the stub judge answers the per-call questions with. */
   answer: 0.9,
+  /**
+   * Probability the stub judge answers the per-message protect questions with.
+   * Low by default: the fixtures are tool traffic, not standing constraints, and
+   * a protect answer over `protectThreshold` would veto every drop under test.
+   */
+  protectAnswer: 0,
   /** When set, the judge throws this message instead of answering. */
   failWith: undefined as string | undefined,
   judgeRequests: 0,
@@ -33,7 +39,10 @@ vi.mock('@oh-my-pi/pi-coding-agent/judgment', () => ({
         if (host.failWith) throw new Error(host.failWith);
         return {
           answers: Object.fromEntries(
-            Object.keys(request.questions).map((name) => [name, { type: 'noul' as const, noul: host.answer }]),
+            Object.keys(request.questions).map((name) => [
+              name,
+              { type: 'noul' as const, noul: name.startsWith('protect_') ? host.protectAnswer : host.answer },
+            ]),
           ),
         };
       },
@@ -133,6 +142,7 @@ async function flush() {
 
 beforeEach(() => {
   host.answer = 0.9;
+  host.protectAnswer = 0;
   host.failWith = undefined;
   host.judgeRequests = 0;
   host.resolveJudgeDeps = [];

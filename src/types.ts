@@ -58,6 +58,12 @@ export interface CallAnswer {
   keepCall: number;
   /** System One's probability that the full result still needs to stay verbatim. */
   keepResult: number;
+  /**
+   * Highest probability, over the call's own message and its result's message,
+   * that the message states a standing constraint or names unfinished work.
+   * Asked per message, so two calls in one message share the answer.
+   */
+  protect: number;
 }
 
 export type CallAction = 'keep' | 'drop_result' | 'drop_call';
@@ -66,7 +72,7 @@ export interface CallDecision extends CallAnswer {
   id: string;
   tool: string;
   action: CallAction;
-  reason: 'pinned' | 'kept' | 'result_dropped' | 'call_dropped';
+  reason: 'pinned' | 'protected' | 'kept' | 'result_dropped' | 'call_dropped';
 }
 
 export interface HistoryToolCall {
@@ -111,6 +117,12 @@ export interface CompactOptions {
   goal?: string;
   /** Minimum keep probability for a call or result to stay. Default 0.5. */
   keepThreshold?: number;
+  /**
+   * Minimum probability that a message states a standing constraint or names
+   * unfinished work. A call in such a message is never dropped, whatever its
+   * own keep probabilities say. Deliberately above `keepThreshold`. Default 0.7.
+   */
+  protectThreshold?: number;
   /** Newest messages never touched (the first message is always kept). Default 6. */
   preserveRecentMessages?: number;
   /** Estimated token ceiling for the state. Default 25000. */
@@ -130,6 +142,7 @@ export interface CompactOptions {
 export interface ResolvedCompactOptions {
   goal: string;
   keepThreshold: number;
+  protectThreshold: number;
   preserveRecentMessages: number;
   maxStateTokens: number;
   maxRequestTokens: number;
@@ -150,6 +163,8 @@ export interface CompactResult {
     charsAfter: number;
     calls: number;
     kept: number;
+    /** Calls kept because their message states a standing constraint. */
+    protected: number;
     resultsDropped: number;
     callsDropped: number;
     pinned: number;

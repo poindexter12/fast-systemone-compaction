@@ -7,6 +7,8 @@ import {
   compact,
   compactMessages,
   decideCall,
+  protectableIndexes,
+  batchQuestions,
   estimateTokens,
   fitState,
   SystemOneClient,
@@ -105,12 +107,12 @@ describe('options', () => {
     // 8192 tokens at the panel's 2.8 chars per token, the case this exists for.
     const resolved = resolveOptions({ maxRequestChars: 22_937 });
     expect(resolved.maxRequestChars).toBe(22_937);
-    expect(resolved.maxStateChars).toBe(22_937 - 50 - 500);
+    expect(resolved.maxStateChars).toBe(22_937 - 50 - 1_020);
   });
 
   it('clamps the state token budget to what the request budget leaves for questions', () => {
     const resolved = resolveOptions({ maxRequestTokens: 8_192 });
-    expect(resolved.maxStateTokens).toBe(8_192 - 20 - 160);
+    expect(resolved.maxStateTokens).toBe(8_192 - 20 - 290);
     expect(resolveOptions({ maxStateTokens: 1_000, maxRequestTokens: 8_192 }).maxStateTokens).toBe(
       1_000,
     );
@@ -295,6 +297,33 @@ describe('question batching', () => {
     expect(batchCalls(calls, state(1000), options)).toHaveLength(1);
   });
 
+  it('asks about a message once when two calls share it', () => {
+    const shared: ToolCall[] = [
+      { ...calls[0]!, id: 'a', callIndex: 1, resultIndex: 2 },
+      { ...calls[1]!, id: 'b', callIndex: 1, resultIndex: 3 },
+    ];
+    expect(protectableIndexes(shared)).toEqual([1, 2, 3]);
+    expect(Object.keys(batchQuestions(shared)).sort()).toEqual([
+      'call_a',
+      'call_b',
+      'protect_m1',
+      'protect_m2',
+      'protect_m3',
+      'result_a',
+      'result_b',
+    ]);
+  });
+
+  it('holds every batch to the token budget with the protect questions counted', () => {
+    const batches = batchCalls(calls, state(29_000), options);
+    expect(batches.length).toBeGreaterThan(1);
+    for (const batch of batches) {
+      expect(estimateTokens(JSON.stringify(batchQuestions(batch)))).toBeLessThanOrEqual(
+        30_000 - 29_000 - 20,
+      );
+    }
+  });
+
   it('splits questions across requests when the state leaves little room', () => {
     const batches = batchCalls(calls, state(29_600), options);
     expect(batches.length).toBeGreaterThan(1);
@@ -324,17 +353,38 @@ describe('question batching', () => {
 });
 
 describe('decisions', () => {
-  const options = { keepThreshold: 0.5 };
+  const options = { keepThreshold: 0.5, protectThreshold: 0.7 };
   const unpinned = { id: 't1', tool: 'Read', pinned: false };
 
   it('keeps, drops the result, or drops the call based on the keep probabilities', () => {
-    expect(decideCall(unpinned, { keepCall: 0.9, keepResult: 0.7 }, options).action).toBe('keep');
-    expect(decideCall(unpinned, { keepCall: 0.9, keepResult: 0.2 }, options).action).toBe('drop_result');
-    expect(decideCall(unpinned, { keepCall: 0.1, keepResult: 0.2 }, options).action).toBe('drop_call');
-    expect(decideCall({ ...unpinned, pinned: true }, { keepCall: 0, keepResult: 0 }, options)).toMatchObject({
+    expect(decideCall(unpinned, { keepCall: 0.9, keepResult: 0.7, protect: 0 }, options).action).toBe('keep');
+    expect(decideCall(unpinned, { keepCall: 0.9, keepResult: 0.2, protect: 0 }, options).action).toBe('drop_result');
+    expect(decideCall(unpinned, { keepCall: 0.1, keepResult: 0.2, protect: 0 }, options).action).toBe('drop_call');
+    expect(decideCall({ ...unpinned, pinned: true }, { keepCall: 0, keepResult: 0, protect: 0 }, options)).toMatchObject({
       action: 'keep',
       reason: 'pinned',
     });
+  });
+
+  it('never drops a call whose message is protected, whatever the keep probabilities say', () => {
+    expect(decideCall(unpinned, { keepCall: 0.1, keepResult: 0.1, protect: 0.7 }, options)).toMatchObject({
+      action: 'keep',
+      reason: 'protected',
+    });
+    expect(decideCall(unpinned, { keepCall: 0.9, keepResult: 0.1, protect: 0.9 }, options)).toMatchObject({
+      action: 'keep',
+      reason: 'protected',
+    });
+  });
+
+  it('leaves the ladder alone just under the protect threshold, and lets pinning win over it', () => {
+    expect(
+      decideCall(unpinned, { keepCall: 0.1, keepResult: 0.1, protect: 0.69 }, options).action,
+    ).toBe('drop_call');
+    expect(
+      decideCall({ ...unpinned, pinned: true }, { keepCall: 0, keepResult: 0, protect: 1 }, options)
+        .reason,
+    ).toBe('pinned');
   });
 
   it('removes dropped calls and truncates dropped results', () => {
@@ -343,9 +393,9 @@ describe('decisions', () => {
     messages[5]!.toolResults![0]!.text = 'x'.repeat(2000);
     const calls = collectToolCalls(messages, 0);
     const decisions = [
-      decideCall(calls[0]!, { keepCall: 0.1, keepResult: 0.1 }, options),
-      decideCall(calls[1]!, { keepCall: 0.9, keepResult: 0.1 }, options),
-      decideCall(calls[2]!, { keepCall: 0.9, keepResult: 0.9 }, options),
+      decideCall(calls[0]!, { keepCall: 0.1, keepResult: 0.1, protect: 0 }, options),
+      decideCall(calls[1]!, { keepCall: 0.9, keepResult: 0.1, protect: 0 }, options),
+      decideCall(calls[2]!, { keepCall: 0.9, keepResult: 0.9, protect: 0 }, options),
     ];
     const kept = applyDecisions(messages, decisions, calls, 300);
 
@@ -383,7 +433,7 @@ describe('decisions', () => {
   it('honours truncateHeadChars, including a zero head', () => {
     const messages = transcript();
     const calls = collectToolCalls(messages, 0);
-    const decisions = [decideCall(calls[0]!, { keepCall: 0.9, keepResult: 0.1 }, { keepThreshold: 0.5 })];
+    const decisions = [decideCall(calls[0]!, { keepCall: 0.9, keepResult: 0.1, protect: 0 }, { keepThreshold: 0.5, protectThreshold: 0.7 })];
     const original = messages[2]!.toolResults![0]!.text;
     const total = original.length;
 
@@ -421,6 +471,12 @@ describe('compact', () => {
       'call_t1',
       'call_t2',
       'call_t3',
+      'protect_m1',
+      'protect_m2',
+      'protect_m4',
+      'protect_m5',
+      'protect_m6',
+      'protect_m7',
       'result_t1',
       'result_t2',
       'result_t3',
@@ -430,6 +486,20 @@ describe('compact', () => {
     expect(output.messages).toHaveLength(messages.length);
     expect(output.stats).toMatchObject({ resultsDropped: 3, kept: 0, callsDropped: 0, pinned: 0 });
     expect(reductionRatio(output)).toBeGreaterThan(0);
+  });
+
+  it('keeps a call the probabilities would drop when its message is protected', async () => {
+    const output = await compact(
+      transcript(),
+      fakeSystemOne((name) => (name.startsWith('protect_') ? 0.9 : 0.1)),
+      { preserveRecentMessages: 0 },
+    );
+
+    expect(output.decisions.map((d) => d.reason)).toEqual(['protected', 'protected', 'protected']);
+    expect(output.messages).toHaveLength(transcript().length);
+    expect(output.stats).toMatchObject({ protected: 3, callsDropped: 0, resultsDropped: 0, kept: 0 });
+    const { calls, kept, protected: guarded, resultsDropped, callsDropped, pinned } = output.stats;
+    expect(kept + guarded + resultsDropped + callsDropped + pinned).toBe(calls);
   });
 
   it('keeps everything without calling System One when no tool call is a candidate', async () => {
@@ -530,11 +600,11 @@ describe('surrogate boundaries', () => {
     const messages = transcript();
     messages[5]!.toolResults![0]!.text = EMOJI.repeat(400);
     const calls = collectToolCalls(messages, 0);
-    const options = { keepThreshold: 0.5 };
+    const options = { keepThreshold: 0.5, protectThreshold: 0.7 };
     const decisions = [
-      decideCall(calls[0]!, { keepCall: 0.9, keepResult: 0.9 }, options),
-      decideCall(calls[1]!, { keepCall: 0.9, keepResult: 0.1 }, options),
-      decideCall(calls[2]!, { keepCall: 0.9, keepResult: 0.9 }, options),
+      decideCall(calls[0]!, { keepCall: 0.9, keepResult: 0.9, protect: 0 }, options),
+      decideCall(calls[1]!, { keepCall: 0.9, keepResult: 0.1, protect: 0 }, options),
+      decideCall(calls[2]!, { keepCall: 0.9, keepResult: 0.9, protect: 0 }, options),
     ];
     const kept = applyDecisions(messages, decisions, calls, 301);
     for (const message of kept) {
@@ -582,7 +652,7 @@ describe('archiving dropped output', () => {
   const dropAll = (messages: ReturnType<typeof transcript>) => {
     const calls = collectToolCalls(messages, 0);
     const decisions = calls.map((call) =>
-      decideCall(call, { keepCall: 0.1, keepResult: 0.1 }, { keepThreshold: 0.5 }),
+      decideCall(call, { keepCall: 0.1, keepResult: 0.1, protect: 0 }, { keepThreshold: 0.5, protectThreshold: 0.7 }),
     );
     return { calls, decisions };
   };
@@ -619,7 +689,7 @@ describe('archiving dropped output', () => {
     const messages = transcript();
     const calls = collectToolCalls(messages, 0);
     const decisions = calls.map((call) =>
-      decideCall(call, { keepCall: 0.9, keepResult: 0.1 }, { keepThreshold: 0.5 }),
+      decideCall(call, { keepCall: 0.9, keepResult: 0.1, protect: 0 }, { keepThreshold: 0.5, protectThreshold: 0.7 }),
     );
     expect(decisions[0]!.action).toBe('drop_result');
     const kept = applyDecisions(
