@@ -20,6 +20,7 @@ import type {
 export const DEFAULT_OPTIONS: ResolvedCompactOptions = {
   goal: '',
   keepThreshold: 0.5,
+  protectThreshold: 0.7,
   preserveRecentMessages: 6,
   maxStateTokens: 25_000,
   maxRequestTokens: 30_000,
@@ -33,11 +34,13 @@ export const REQUEST_OVERHEAD_TOKENS = 20;
 /** Characters of that same envelope; `{"model":"jev-latest","state":"","questions":{}}` is 48. */
 export const REQUEST_OVERHEAD_CHARS = 50;
 /**
- * Room one call's pair of questions needs. The longest tool name seen so far
- * (a 49-character MCP name) costs 156 tokens in 493 characters.
+ * Room the questions about one call need: its own pair, plus a protect question
+ * for each of its two messages. Measured against the longest tool name seen so
+ * far (a 49-character MCP name) with a 29-character id and a six-digit result
+ * size, which costs 286 tokens in 1012 characters. The pair alone is 160 in 596.
  */
-const MIN_QUESTIONS_TOKENS = 160;
-const MIN_QUESTIONS_CHARS = 500;
+const MIN_QUESTIONS_TOKENS = 290;
+const MIN_QUESTIONS_CHARS = 1020;
 
 function finite(value: number | undefined, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
@@ -55,6 +58,7 @@ export function resolveOptions(options: CompactOptions = {}): ResolvedCompactOpt
   return {
     goal: options.goal ?? DEFAULT_OPTIONS.goal,
     keepThreshold: finite(options.keepThreshold, DEFAULT_OPTIONS.keepThreshold),
+    protectThreshold: finite(options.protectThreshold, DEFAULT_OPTIONS.protectThreshold),
     preserveRecentMessages: Math.max(
       0,
       Math.floor(
@@ -98,6 +102,42 @@ export function questionsFor(call: ToolCall): SystemOneQuestions {
 }
 
 /**
+ * The `noul` question asked about one message: whether it is the kind of message
+ * that must never be dropped. Asked per message rather than per call, because
+ * one message can hold several calls and the answer is about the message.
+ */
+export function protectQuestionFor(index: number): SystemOneQuestions {
+  return {
+    [`protect_m${index}`]: {
+      type: 'noul',
+      instructions: `Message m${index} is where the user states a standing rule, constraint, or preference for the assistant to keep following, or names work that has still not been done`,
+    },
+  };
+}
+
+/**
+ * The messages a batch has to ask about: every candidate call's own message and
+ * its result's message, each once. Ascending, so a batch's questions are stable.
+ */
+export function protectableIndexes(calls: readonly ToolCall[]): number[] {
+  const seen = new Set<number>();
+  for (const call of calls) {
+    seen.add(call.callIndex);
+    seen.add(call.resultIndex);
+  }
+  return [...seen].sort((a, b) => a - b);
+}
+
+/** Every question one batch asks: two per call, plus one per message they touch. */
+export function batchQuestions(batch: readonly ToolCall[]): SystemOneQuestions {
+  return Object.assign(
+    {},
+    ...batch.map(questionsFor),
+    ...protectableIndexes(batch).map(protectQuestionFor),
+  );
+}
+
+/**
  * Splits the candidate calls into batches whose questions, together with the
  * (always complete) state, fit one request. Both budgets have to hold: the
  * estimated tokens and, when the endpoint caps bytes, the exact characters.
@@ -113,8 +153,12 @@ export function batchCalls(
   let current: ToolCall[] = [];
   let currentTokens = 0;
   let currentChars = 0;
+  let asked = new Set<number>();
   for (const call of calls) {
-    const json = JSON.stringify(questionsFor(call));
+    const fresh = protectableIndexes([call]).filter((index) => !asked.has(index));
+    const json =
+      JSON.stringify(questionsFor(call)) +
+      fresh.map((index) => JSON.stringify(protectQuestionFor(index))).join('');
     const tokens = estimateTokens(json);
     const chars = json.length;
     if (
@@ -125,6 +169,7 @@ export function batchCalls(
       current = [];
       currentTokens = 0;
       currentChars = 0;
+      asked = new Set<number>();
     }
     if (current.length === 0 && tokens > tokenBudget) {
       throw new Error(
@@ -137,6 +182,7 @@ export function batchCalls(
       );
     }
     current.push(call);
+    for (const index of protectableIndexes([call])) asked.add(index);
     currentTokens += tokens;
     currentChars += chars;
   }
@@ -147,10 +193,13 @@ export function batchCalls(
 export function decideCall(
   call: Pick<ToolCall, 'id' | 'tool' | 'pinned'>,
   answer: CallAnswer,
-  options: Pick<ResolvedCompactOptions, 'keepThreshold'>,
+  options: Pick<ResolvedCompactOptions, 'keepThreshold' | 'protectThreshold'>,
 ): CallDecision {
   const base = { id: call.id, tool: call.tool, ...answer };
   if (call.pinned) return { ...base, action: 'keep', reason: 'pinned' };
+  if (answer.protect >= options.protectThreshold) {
+    return { ...base, action: 'keep', reason: 'protected' };
+  }
   if (answer.keepResult >= options.keepThreshold) {
     return { ...base, action: 'keep', reason: 'kept' };
   }
@@ -165,14 +214,17 @@ async function askBatch(
   state: CompactionState,
   batch: readonly ToolCall[],
 ): Promise<Map<string, CallAnswer>> {
-  const questions: SystemOneQuestions = Object.assign({}, ...batch.map(questionsFor));
-  const { answers } = await asker.ask(state, questions);
+  const { answers } = await asker.ask(state, batchQuestions(batch));
+  const protect = new Map(
+    protectableIndexes(batch).map((index) => [index, noulAnswer(answers, `protect_m${index}`)]),
+  );
   return new Map(
     batch.map((call) => [
       call.id,
       {
         keepCall: noulAnswer(answers, `call_${call.id}`),
         keepResult: noulAnswer(answers, `result_${call.id}`),
+        protect: Math.max(protect.get(call.callIndex) ?? 0, protect.get(call.resultIndex) ?? 0),
       },
     ]),
   );
@@ -368,7 +420,7 @@ export async function compact(
   }
 
   const decisions = calls.map((call) =>
-    decideCall(call, answers.get(call.id) ?? { keepCall: 1, keepResult: 1 }, resolved),
+    decideCall(call, answers.get(call.id) ?? { keepCall: 1, keepResult: 1, protect: 0 }, resolved),
   );
   const kept = applyDecisions(
     messages,
@@ -387,6 +439,7 @@ export async function compact(
       charsAfter: kept.reduce((sum, message) => sum + messageChars(message), 0),
       calls: calls.length,
       kept: count(decisions, 'kept'),
+      protected: count(decisions, 'protected'),
       resultsDropped: count(decisions, 'result_dropped'),
       callsDropped: count(decisions, 'call_dropped'),
       pinned: count(decisions, 'pinned'),
