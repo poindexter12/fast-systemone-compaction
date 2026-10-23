@@ -21,6 +21,12 @@
       "description": "Minimum System One probability that a tool call or tool result is still needed; below it the item is removed.",
       "default": 0.5
     },
+    "protectThreshold": {
+      "type": "number",
+      "title": "Protect threshold",
+      "description": "Minimum System One probability that a message states a standing rule or names unfinished work. A tool call in such a message is never removed, whatever its own scores say. Deliberately above the keep threshold.",
+      "default": 0.7
+    },
     "preserveRecentMessages": {
       "type": "number",
       "title": "Recent messages to preserve",
