@@ -39,12 +39,16 @@ built-in compaction summary with the original messages.
 4. For every non-pinned call System One gets two `noul` questions: should the **call**
    stay (knowing it was made, with its input, still matters), and should the
    **result** stay verbatim (its contents are still needed and re-running the
-   tool would not do).
+   tool would not do). A third question is asked once per message either of
+   those sits in: whether it is where the user states a standing rule,
+   constraint or preference, or names work still not done.
 5. Questions are split into as many requests as needed so state plus questions
    stays under `maxRequestTokens` (30k by default, under Jev's 32k request
    limit). The same full state is resent with every request; requests run
    concurrently and their answers are merged.
 6. Decisions per call, against `keepThreshold`:
+   - the message is pinned, or scores `≥ protectThreshold` on that third
+     question → keep call and result, whatever the two keep scores say;
    - `keepResult ≥ threshold` → keep call and result;
    - else `keepCall ≥ threshold` → keep the call, truncate the result to its
      first `truncateHeadChars` characters plus a one-line note;
@@ -112,6 +116,7 @@ put it in a source file.
 | `fetch` | native `fetch` | Injectable fetch implementation for tests |
 | `goal` | last 3 user prompts | Ongoing task description included in the state |
 | `keepThreshold` | `0.5` | Minimum keep probability for a call or result to stay |
+| `protectThreshold` | `0.7` | Minimum probability a message states a standing constraint; a call in one is never dropped |
 | `preserveRecentMessages` | `6` | Newest messages never touched (the first is always kept) |
 | `maxStateTokens` | `25000` | Estimated token ceiling for the state |
 | `maxRequestTokens` | `30000` | Estimated ceiling for state plus one batch of questions |
