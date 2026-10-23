@@ -1,19 +1,23 @@
 # Architecture
 
-*Last Updated: 2026-10-20*
+*Last Updated: 2026-10-23*
 
-## Two artifacts, one tree
+## Three artifacts, one tree
 
-The plugin root is the repository root, so `hooks/fast-systemone.ts` imports `../src/*.js` directly
-and the dependency runs one way only:
+The plugin root is the repository root, so both adapters import `../src/*.js` directly and the
+dependency runs one way only. Nothing in `src/` imports either host:
 
 ```
 .claude-plugin/plugin.json   plugin manifest + userConfig schema (the install prompt)
 hooks/hooks.json             { "modules": ["./fast-systemone.ts"] }
 hooks/fast-systemone.ts      adapter: userConfig -> options, SessionMessage <-> Message, fallback
+
+omp/package.json             omp manifest: omp.extensions + omp.settings schema
+omp/host.d.ts                ambient @oh-my-pi modules, so omp/ typechecks uninstalled
+omp/index.ts                 adapter: omp judge -> asker, AgentMessage -> Message, verbatim string
         |
-        v  imports ../src/*.js
-src/index.ts                 barrel re-exporting all eight modules
+        v  both import ../src/*.js
+src/index.ts                 barrel re-exporting all twelve modules
 src/types.ts                 every shape; no behaviour
 src/request.ts               URL/body construction, response validation, noulAnswer
 src/client.ts                SystemOneClient: a SystemOneAsker over global fetch
@@ -22,12 +26,22 @@ src/state.ts                 token estimate, call pairing, the state-fitting lad
 src/compact.ts               option resolution, question building, batching, decisions, rebuild
 src/output.ts                trimOutput: chunk one command's output, score chunks, collapse runs
 src/messages.ts              compactMessages: compact + a client, for library callers
+src/judge-asker.ts           askerFromJudge: omp's judge behind SystemOneAsker
+src/agent-transcript.ts      omp AgentMessage <-> Message, and renderVerbatim
+src/omp-threshold.ts         omp's compaction trigger and its 80% recovery line, recomputed
+src/plugin-settings.ts       reads the two numbers omp's Plugins tab saved
 ```
 
 `src/` never imports a `claude-code` type. Those live in `types/claude-code.d.ts` and belong to
 `hooks/`, which is what keeps the library usable by a caller bringing its own transport through
 `SystemOneAsker`. The boundary is a rule, not just a habit: see
-`.claude/rules/library-hook-boundary.md`.
+`.claude/rules/library-hook-boundary.md`. The omp extension is the proof that the seam works: it
+brings omp's judge instead of a TypeSafe client and reuses `compact()` unchanged.
+
+The four omp-facing modules live in `src/` rather than in `omp/` so they get unit tests and so
+`omp/index.ts` stays a wiring file. None of them imports an `@oh-my-pi` module; those imports are
+confined to `omp/index.ts`, typed by `omp/host.d.ts`. `src/plugin-settings.ts` is the one place in
+`src/` that touches the filesystem, reading omp's own saved settings through `node:fs/promises`.
 
 ## The compaction pipeline
 
@@ -181,6 +195,50 @@ above the true length. It is left alone because it errs toward the safe side, an
 
 `compactAtPercent` and `minReductionRatio` are host policy and live only in the hook. The library
 has no opinion about when to compact or whether the result was good enough.
+
+## The omp extension, and the two passes it takes
+
+`omp/index.ts` registers two handlers on oh-my-pi and swaps out compaction's *result* rather than
+its trigger. omp decides when to compact; this extension decides what the compacted span contains.
+
+- **`session_before_compact`** takes the messages omp was about to summarize plus the turn prefix it
+  held back, maps them with `fromAgentMessages`, and runs the same `compact()` over them. The asker
+  is `askerFromJudge(resolveJudge(...))`, so scoring goes through omp's `judge` model role: native
+  System One when that role speaks it, omp's text bridge otherwise. No `TYPESAFE_API_KEY` is read on
+  this path. `preserveRecentMessages` is `0`, because omp has already withheld the newest messages
+  and they stay real messages outside the replaced span.
+- **`session_compact`** is where the second pass is started, when one is needed.
+
+The hook returns a `{ compaction: { summary, firstKeptEntryId, tokensBefore } }` object, and
+`summary` is a *string*: omp's API can substitute the summary text but not the message list. So
+`renderVerbatim` renders the kept messages as text, with a leading line telling the agent that
+nothing below was summarized, each message under a `## role` heading, each surviving call fenced,
+and each truncated result already carrying its marker. Verbatim-but-flattened is the compromise this
+host forces; the Claude Code hook, which can hand back real messages, does not pay it.
+
+### Why a follow-up pass exists
+
+omp only treats a compaction as successful when what remains sits at or below 80% of the trigger
+that fired it, and a verbatim span can easily be larger than a summary of it. `ompTriggerTokens` and
+`clearsOmpThreshold` in `src/omp-threshold.ts` recompute that same arithmetic from the context window
+and omp's `thresholdTokens`/`thresholdPercent` settings, against a `tokensAfter` estimated as
+`tokensBefore - span + summary`. If the result still sits above the line, `session_compact` sets
+`yieldNext`, waits for the pass that is still marked compacting to finish (`setTimeout(..., 0)`), and
+calls `ctx.compact()` again. That second before-hook returns `undefined`, which stands aside and lets
+omp's own method order summarize a history that already contains the verbatim result. The two flags,
+`yieldNext` and `followUp`, are the whole state machine, and `tests/omp-extension.test.ts` pins both.
+
+A thrown judge request is caught and also returns `undefined`, so the failure mode matches the Claude
+Code hook's: announce it through the host's UI and let the host's own summarising compaction run.
+
+### Where its two numbers come from
+
+`keepThreshold` and `truncateHeadChars` are declared under `omp.settings` in `omp/package.json` and
+set from omp's Settings → Plugins. `loadOmpPluginSettings` reads them per compaction:
+`omp-plugins.lock.json` under `ompPluginsDir()` for the global values, `.omp/plugin-overrides.json`
+in the project for the overrides, project winning per key. A missing file, unparseable JSON or an
+out-of-range number silently falls back to `OMP_PLUGIN_DEFAULTS`, so an `extensions:` path that was
+never installed through the plugin manager still runs on the defaults.
 
 ## Endpoint routing
 

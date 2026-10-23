@@ -1,13 +1,13 @@
 # Patterns and conventions
 
-*Last Updated: 2026-10-20*
+*Last Updated: 2026-10-23*
 
 There is no linter and no formatter in this repo, so the conventions below are tacit: they live in
 the existing code and nothing enforces them but review. Match what is there.
 
 ## Invariants
 
-These hold across both layers, and breaking one produces an invalid transcript rather than a test
+These hold across every layer, and breaking one produces an invalid transcript rather than a test
 failure:
 
 - **A tool result never survives without its tool call.** `applyDecisions` removes a `drop_call`
@@ -28,10 +28,12 @@ failure:
 `batchCalls` when the state leaves no room for even one call's questions; `SystemOneClient` when the
 key is missing.
 
-The library never falls back, never retries and never logs. The host decides: the hook wraps
-`compactSession` in a single try/catch and routes every failure to `next(event)`, which is Claude
-Code's built-in summarising compaction, after announcing it through `$.ui.log` and a 15-second toast.
-A fallback is always visible; a silent degradation is a defect.
+The library never falls back, never retries and never logs. The host decides, and both hosts decide
+the same way. The Claude Code hook wraps `compactSession` in a single try/catch and routes every
+failure to `next(event)`, which is Claude Code's built-in summarising compaction, after announcing it
+through `$.ui.log` and a 15-second toast. The omp extension catches and returns `undefined`, which
+leaves omp's own summary in place, after announcing it through `ctx.ui.notify(..., 'error')`. A
+fallback is always visible; a silent degradation is a defect.
 
 ## Option resolution
 
@@ -58,8 +60,9 @@ function actually reads and keeps the tests honest, since a test can pass exactl
 - **Doc comment on exports.** Every exported function, type and constant that is not
   self-evident carries a `/** ... */` saying what it is for, often why. Internal helpers get one
   only when the reason is not obvious from the body.
-- **Named exports only.** No default exports anywhere. `src/index.ts` is a pure barrel of
-  `export * from './x.js'`.
+- **Named exports only.** `src/index.ts` is a pure barrel of `export * from './x.js'`. The one
+  default export in the tree is `omp/index.ts`, because omp loads an extension by calling the
+  module's default. Host-imposed, not a precedent.
 - **`.js` extensions on relative imports**, including from `hooks/` into `../src/`. Required by
   `NodeNext` resolution.
 - **`import type` for type-only imports**, consistently.
@@ -74,17 +77,25 @@ function actually reads and keeps the tests honest, since a test can pass exactl
 - **`Jev` means the model, `SystemOne` means the wire protocol.** The model may be named only in
   `DEFAULT_MODEL`, the `jev-latest` defaults and the estimator calibration note.
   `tests/naming.test.ts` enforces this over `src/` and `hooks/`, with the allowed sites listed
-  explicitly; add a site to that list rather than loosening the check.
+  explicitly; add a site to that list rather than loosening the check. `omp/` is outside that scan,
+  so the line there rests on review alone.
+- **`omp` means the host, lowercase, in prose and in names.** `src/omp-threshold.ts`,
+  `loadOmpPluginSettings`, `OMP_PLUGIN_DEFAULTS`. The library's own vocabulary stays
+  host-independent; a module named for a host is a module that adapts to one.
 
 ## Testing
 
-Five suites under `tests/`, all offline:
+Nine suites under `tests/`, 88 tests, all offline:
 
 | Suite | Covers |
 |---|---|
 | `fast-systemone-compaction.test.ts` | the library: options, token estimate, call pairing, every fitting stage, batching, decisions, `compact` end to end, and the HTTP client against an injected `fetch` |
-| `hook.test.ts` | the adapter: `resolveHookConfig`, `toSessionMessages` object identity, `compactSession` over a fake engine fetch, endpoint routing, and that failures throw so the hook falls back |
+| `hook.test.ts` | the Claude Code adapter: `resolveHookConfig`, `toSessionMessages` object identity, `compactSession` over a fake engine fetch, endpoint routing, and that failures throw so the hook falls back |
 | `output.test.ts` | `trimOutput`: chunking, the keep/drop boundary, the marker, the archive hand-off, and that one request never exceeds a char cap |
+| `omp-extension.test.ts` | the omp adapter: the yield/follow-up state machine, deferral to omp's method order, the `tokensAfter` arithmetic, the catch path, and the handler wiring, all against a fake `pi` and a fake judge |
+| `omp-transcript.test.ts` | `fromAgentMessages` pairing a `toolResult` message to the call before it, `renderVerbatim` omitting empty messages, and `askerFromJudge` carrying a judge's answers through |
+| `omp-threshold.test.ts` | `ompTriggerTokens` and `clearsOmpThreshold`: the token limit ahead of the percentage, the percentage when no limit is set, and the 80% line |
+| `plugin-settings.test.ts` | `resolveOmpPluginSettings`: the defaults when nothing is stored, project winning over global, and an out-of-range number falling back |
 | `naming.test.ts` | the model-versus-protocol naming line, over `src/` and `hooks/` |
 | `version.test.ts` | that the one version agrees across `package.json`, both plugin manifests, and the lockfile |
 
@@ -103,8 +114,12 @@ Patterns worth copying:
   every allowed site still exists, so the guard cannot quietly become vacuous; when writing a check
   like this, prove it bites before trusting it.
 - **A guard states its own blind spot.** `naming.test.ts` says in a comment that it scans `src/` and
-  `hooks/` TypeScript only, so a clean run is not a claim about the READMEs, the manifests or the
-  demo.
+  `hooks/` TypeScript only, so a clean run is not a claim about the READMEs, the manifests, the demo
+  or `omp/`.
+- **A host is faked at its own seam, not mocked deeply.** `omp-extension.test.ts` builds a `pi`
+  object that records handlers and a judge returning fixed probabilities, then drives the handlers
+  directly. Nothing imports `@oh-my-pi`, so the suite runs with omp uninstalled, the same way
+  `hook.test.ts` runs without Claude Code.
 
 ## Logging and observability
 

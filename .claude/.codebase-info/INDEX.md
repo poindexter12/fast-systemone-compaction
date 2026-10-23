@@ -1,12 +1,14 @@
 # fast-systemone-compaction : codebase map
 
-*Last Updated: 2026-10-15*
+*Last Updated: 2026-10-23*
 
-One repository, two artifacts. The `fast-systemone-compaction` npm package in `src/` decides what a
-coding-agent transcript can lose, by asking TypeSafe's System One API, for every tool call, whether
-the call and whether its full result still matter. The Claude Code function-hook plugin in `hooks/`
-plus `.claude-plugin/` is an adapter that runs that library against a live session on
-`session.compact`. Nothing is summarised: what survives is verbatim, and what does not is deleted.
+One repository, three artifacts. The `fast-systemone-compaction` npm package in `src/` decides what a
+coding-agent transcript can lose, by asking a scorer, for every tool call, whether the call and
+whether its full result still matter. Two adapters run that library against a live session: the
+Claude Code function-hook plugin in `hooks/` plus `.claude-plugin/`, which scores over TypeSafe's
+System One API on `session.compact`, and the oh-my-pi extension in `omp/`, which scores through
+omp's own built-in judge on `session_before_compact` and needs no TypeSafe key. Nothing is
+summarised: what survives is verbatim, and what does not is deleted.
 
 This is a deliberately divergent fork of `tamaratran/fast-jev-compaction`, published under its own
 name because the protocol is System One and `jev-latest` is only one model that speaks it.
@@ -15,7 +17,7 @@ name because the protocol is System One and `jev-latest` is only one model that 
 
 | Document | What it answers |
 |---|---|
-| [architecture.md](architecture.md) | The two artifacts, the compaction pipeline, the state-fitting ladder, the budgets, the fallback |
+| [architecture.md](architecture.md) | The three artifacts, the compaction pipeline, the state-fitting ladder, the budgets, the fallback |
 | [tech-landscape.md](tech-landscape.md) | Languages, runtimes, toolchain, commands, CI, and which file is source of truth for what |
 | [patterns.md](patterns.md) | Error handling, option resolution, the invariants, the test harness, and the tacit conventions (there is no linter) |
 | [onboarding.md](onboarding.md) | Getting a working tree green, common tasks, and the known-broken things that are not your fault |
