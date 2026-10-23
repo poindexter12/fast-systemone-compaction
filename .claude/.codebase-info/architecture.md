@@ -81,13 +81,24 @@ verbatim. The state is identical in every batch; only the questions differ.
 message is pinned, so a pair is never split across the boundary. Pinned calls are never asked about
 and always decided `keep` / reason `pinned`.
 
+Protection joins that rule rather than replacing it. A third question, `protect_m<index>`, is asked
+once per *message* a candidate call touches: whether it is where the user states a standing rule,
+constraint or preference, or names work still not done. A call carries the higher of the two answers
+for its own message and its result's. Because the answer arrives in the same round as the per-call
+pair, it cannot feed `isPinned` itself : pinning decides which calls become candidates, and
+candidates decide which questions get asked, so a true pinning feed would need a second round trip.
+It is applied as a veto in the ladder instead, which protects a message from deletion but not from
+`fitState`'s abridgement, since fitting runs before any answer exists.
+
 ### The decision ladder
 
-`decideCall` reads the two probabilities against one `keepThreshold` (default 0.5):
+`decideCall` reads the three probabilities against `keepThreshold` (default 0.5) and
+`protectThreshold` (default 0.7, deliberately higher):
 
 | Condition | Action | What happens in the transcript |
 |---|---|---|
 | `call.pinned` | `keep` | untouched |
+| `protect >= protectThreshold` | `keep` | untouched, whatever the two keep scores say |
 | `keepResult >= keepThreshold` | `keep` | untouched |
 | `keepCall >= keepThreshold` | `drop_result` | the call stays; the result keeps `truncateHeadChars` (default 300) plus a marker naming the dropped char count |
 | otherwise | `drop_call` | the call and its result both disappear, leaving a one-line note only when the output was archived |
@@ -157,14 +168,16 @@ second one.
 `maxStateChars` is derived inside `resolveOptions` and cannot be set by a caller, specifically so the
 pair cannot drift the way the token pair can. `resolveOptions` also clamps `maxStateTokens` down to
 what the request budget leaves for at least one call's questions
-(`maxRequestTokens - 20 - 160`), so raising the request cap alone truncates harder instead of
-throwing. With the defaults the clamp is inert: `min(25000, 29820)` is 25000.
+(`maxRequestTokens - 20 - 290`), so raising the request cap alone truncates harder instead of
+throwing. With the defaults the clamp is inert: `min(25000, 29690)` is 25000.
 
 The four constants in `src/compact.ts` are measured, not guessed. The request envelope
 (`{"model":"jev-latest","state":"","questions":{}}`) is 48 chars and 24 estimated tokens, rounded to
-`REQUEST_OVERHEAD_CHARS = 50` / `REQUEST_OVERHEAD_TOKENS = 20`; the worst question pair seen, a
-49-character MCP tool name, costs 493 chars and 156 tokens, rounded to `MIN_QUESTIONS_CHARS = 500` /
-`MIN_QUESTIONS_TOKENS = 160`.
+`REQUEST_OVERHEAD_CHARS = 50` / `REQUEST_OVERHEAD_TOKENS = 20`; the worst questions for one call :
+its pair plus a protect question for each of its two messages, measured with a 49-character MCP tool
+name, a 29-character id and a six-digit result size : cost 1012 chars and 286 tokens, rounded to
+`MIN_QUESTIONS_CHARS = 1020` / `MIN_QUESTIONS_TOKENS = 290`. The pair alone is 596 and 160, so the
+constants were remeasured when the third question landed rather than scaled.
 
 One deliberate inaccuracy: `entrySize` charges one comma per entry, so `n` entries are billed `n`
 separators where the serialised array needs `n - 1`. The reported `chars` therefore sits exactly one
