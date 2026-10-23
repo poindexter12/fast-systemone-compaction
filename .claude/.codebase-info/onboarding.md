@@ -1,13 +1,13 @@
 # Onboarding
 
-*Last Updated: 2026-10-13*
+*Last Updated: 2026-10-23*
 
 ## Getting to green
 
 ```bash
 npm ci                     # a fresh clone has no node_modules; typecheck and test both need it
-npm run typecheck          # library, then hooks
-npm test                   # vitest, offline
+npm run typecheck          # library, then hooks, then the omp extension
+npm test                   # vitest, 9 suites, offline
 npm run validate:plugin    # needs the `claude` CLI on PATH
 ```
 
@@ -15,8 +15,9 @@ Those three are the gates (`.claude/rules/verification.md`); run all three and r
 said. `mise` will install the pinned Node on entry if you use it (`.mise.toml`, `auto_install =
 true`).
 
-Nothing here needs a TypeSafe key. Only `npm run demo` does, and it is the single code path that
-reaches the network.
+Nothing here needs a TypeSafe key, and nothing needs either host installed: Claude Code's engine
+API comes from `types/claude-code.d.ts` and omp's from `omp/host.d.ts`, both ambient declarations.
+Only `npm run demo` needs a key, and it is the single code path that reaches the network.
 
 ## Common tasks
 
@@ -26,7 +27,9 @@ reaches the network.
 | Add a tuning option | `CompactOptions` + `ResolvedCompactOptions` in `src/types.ts`, `DEFAULT_OPTIONS` and `resolveOptions` in `src/compact.ts`, the key list in `resolveHookConfig`, and `userConfig` in `.claude-plugin/plugin.json`. Then `npm run validate:plugin` |
 | Change how the state is shaped or shrunk | `src/state.ts`; add a case to the `state fitting` describe block, which pins most stage names (`inputs<=60` and `old messages left out` are not individually asserted yet) |
 | Change the request or response shape | `src/request.ts` and the `SystemOne*` types; keep `Jev` out of the names |
-| Change host behaviour (when to compact, when to fall back) | `hooks/fast-systemone.ts` only |
+| Change host behaviour (when to compact, when to fall back) | `hooks/fast-systemone.ts` for Claude Code, `omp/index.ts` for omp; never `src/` |
+| Change what omp sees after compaction | `renderVerbatim` in `src/agent-transcript.ts`; the follow-up pass is the two flags in `omp/index.ts`, pinned by `tests/omp-extension.test.ts` |
+| Add a second host adapter | bring a `SystemOneAsker` and a `Message` mapping, as `src/judge-asker.ts` and `src/agent-transcript.ts` do; nothing in `src/` should learn about the host |
 | Find what calls what | the graph: `graphify explain "<symbol>"`, `graphify path "<a>" "<b>"` |
 | Check the estimator against reality | `npm run demo` with `TYPESAFE_API_KEY` set; the response `usage` is what the estimate was calibrated against |
 
@@ -52,6 +55,13 @@ found. "This already works, here is where" is a better answer than a change
   gate. CI runs typecheck, test and build on Node 24 and 26.
 - **After the rename, an installed copy of the plugin needs its marketplace re-added** before Claude
   Code will see this repo under the new name.
+- **`@oh-my-pi/pi-coding-agent` is not installed and is not meant to be.** `omp/host.d.ts` declares
+  the slices `omp/index.ts` uses. A green `typecheck:omp` therefore says the extension agrees with
+  *those declarations*, not with the real omp; the only check against the real thing is pointing a
+  live omp at `omp/` via `extensions:` in `~/.omp/agent/config.yml`.
+- **No graphify post-commit hook is installed** (`graphify hook status` says so), so the graph in
+  `graphify-out/` goes stale on every commit until someone runs `graphify update .`. Check
+  `graphify-out/GRAPH_REPORT.md`'s commit against `git rev-parse HEAD` before trusting it.
 
 ## Git
 
