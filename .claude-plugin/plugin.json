@@ -45,6 +45,12 @@
       "description": "Minimum estimated character reduction required to replace history.",
       "default": 0.25
     },
+    "summarizeDropped": {
+      "type": "boolean",
+      "title": "Summarize dropped tool output",
+      "description": "Hand the messages the judge drops to Claude Code's summarizer and put that note in front of the kept messages. Off by default: with it on, the kept messages are still verbatim but the history is no longer summary-free.",
+      "default": false
+    },
     "archiveResults": {
       "type": "boolean",
       "title": "Save dropped tool output",
