@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { SessionCompactInput, SessionMessage } from 'claude-code';
 import {
   archiveWriter,
   compactSession,
@@ -6,6 +7,7 @@ import {
   decisionLogLines,
   outcomeNotice,
   resolveHookConfig,
+  summaryOfDropped,
   summarize,
   toSessionMessages,
 } from '../hooks/fast-systemone.ts';
@@ -65,6 +67,11 @@ function systemOneFetch(
 }
 
 describe('hook config', () => {
+  it('turns the summary of dropped messages on when asked', () => {
+    expect(resolveHookConfig({ summarizeDropped: true }).summarizeDropped).toBe(true);
+    expect(resolveHookConfig({ summarizeDropped: 'yes' }).summarizeDropped).toBe(false);
+  });
+
   it('reads userConfig values and falls back to defaults', () => {
     expect(resolveHookConfig({})).toEqual({
       archiveResults: true,
@@ -73,6 +80,7 @@ describe('hook config', () => {
       bashOutputChunkLines: 20,
       compactAtPercent: 60,
       minReductionRatio: 0.25,
+      summarizeDropped: false,
       model: 'jev-latest',
     });
     expect(
@@ -92,6 +100,7 @@ describe('hook config', () => {
       bashOutputChunkLines: 20,
       compactAtPercent: 60,
       minReductionRatio: 0.25,
+      summarizeDropped: false,
     });
     expect(resolveHookConfig({ archiveResults: false }).archiveResults).toBe(false);
     expect(
@@ -217,6 +226,83 @@ describe('outcomeNotice', () => {
     expect(outcomeNotice('precompute', 3, 7, output)).toBe(
       `precomputed 3/7 messages, no summary; installed only if this conversation still leads (${summarize(output)})`,
     );
+  });
+
+  it('counts the summary of dropped messages when there is one', async () => {
+    const config = { ...resolveHookConfig({ preserveRecentMessages: 1 }), apiKey: 'k' };
+    const { result: output } = await compactSession(transcript(), config, systemOneFetch(() => 0.1));
+    expect(outcomeNotice('auto', 3, 7, output, 1)).toBe(
+      `kept 3/7 messages, 1 summary message(s) of what was dropped (${summarize(output)})`,
+    );
+  });
+});
+
+describe('summaryOfDropped', () => {
+  const msg = (id: string) => ({ handle: id }) as unknown as SessionMessage;
+  const stub = () => {
+    const logs: string[] = [];
+    return { $: { ui: { log: (text: string) => logs.push(text) } }, logs };
+  };
+
+  it('summarizes only the messages the judge dropped, and says they are going away', async () => {
+    const all = [msg('a'), msg('b'), msg('c')];
+    const seen: SessionCompactInput[] = [];
+    const lead = await summaryOfDropped(
+      stub().$,
+      { trigger: 'auto', messages: all } as SessionCompactInput,
+      async (event) => {
+        seen.push(event);
+        return { messages: [msg('note')] };
+      },
+      [all[0]!, all[2]!],
+    );
+    expect(lead).toEqual([msg('note')]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.messages).toEqual([all[1]]);
+    expect(seen[0]!.instructions).toContain('being deleted');
+    expect(seen[0]!.trigger).toBe('auto');
+  });
+
+  it('asks for nothing when the judge dropped nothing', async () => {
+    const all = [msg('a'), msg('b')];
+    let called = false;
+    const lead = await summaryOfDropped(
+      stub().$,
+      { trigger: 'auto', messages: all } as SessionCompactInput,
+      async () => {
+        called = true;
+        return { messages: [] };
+      },
+      all,
+    );
+    expect(lead).toEqual([]);
+    expect(called).toBe(false);
+  });
+
+  it('keeps the verbatim messages alone when the summarizer skips', async () => {
+    const all = [msg('a'), msg('b')];
+    const lead = await summaryOfDropped(
+      stub().$,
+      { trigger: 'auto', messages: all } as SessionCompactInput,
+      async () => ({ skip: 'not now' }),
+      [all[0]!],
+    );
+    expect(lead).toEqual([]);
+  });
+
+  it('logs and gives up the note when the summarizer throws', async () => {
+    const all = [msg('a'), msg('b')];
+    const s = stub();
+    const lead = await summaryOfDropped(
+      s.$,
+      { trigger: 'auto', messages: all } as SessionCompactInput,
+      async () => {
+        throw new Error('boom');
+      },
+      [all[0]!],
+    );
+    expect(lead).toEqual([]);
+    expect(s.logs[0]).toContain('keeping verbatim only (boom)');
   });
 });
 

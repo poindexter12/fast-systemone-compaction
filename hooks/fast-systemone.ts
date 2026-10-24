@@ -2,6 +2,8 @@ import type {
   On,
   PluginOptions,
   Register,
+  SessionCompactInput,
+  SessionCompactResult,
   SessionCompactTrigger,
   SessionMessage,
   ToolResultSummary,
@@ -24,6 +26,7 @@ import type {
 } from '../src/types.js';
 
 const HOOK_DEFAULTS = {
+  summarizeDropped: false,
   archiveResults: true,
   bashOutput: false,
   bashOutputMinChars: 4_000,
@@ -57,6 +60,7 @@ export type HookConfig = CompactOptions & {
   baseUrl?: string;
   compactAtPercent: number;
   minReductionRatio: number;
+  summarizeDropped: boolean;
   model: string;
 };
 
@@ -113,6 +117,10 @@ export function resolveHookConfig(options: PluginOptions): HookConfig {
       'minReductionRatio',
       HOOK_DEFAULTS.minReductionRatio,
     ),
+    summarizeDropped:
+      typeof options.summarizeDropped === 'boolean'
+        ? options.summarizeDropped
+        : HOOK_DEFAULTS.summarizeDropped,
     model: optionString(options, 'model') ?? HOOK_DEFAULTS.model,
   };
   const apiKey = optionString(options, 'apiKey');
@@ -310,8 +318,11 @@ export function outcomeNotice(
   kept: number,
   total: number,
   result: CompactResult,
+  lead = 0,
 ): string {
-  const counts = `${kept}/${total} messages, no summary`;
+  const counts = `${kept}/${total} messages, ${
+    lead > 0 ? `${lead} summary message(s) of what was dropped` : 'no summary'
+  }`;
   return trigger === 'precompute'
     ? `precomputed ${counts}; installed only if this conversation still leads (${summarize(result)})`
     : `kept ${counts} (${summarize(result)})`;
@@ -395,6 +406,47 @@ function notify(
 ): void {
   $.ui.log(text);
   $.ui.toast(text, { timeoutMs: 15_000 });
+}
+
+/**
+ * What the summarizer is told about the span being deleted. The kept messages
+ * stay verbatim, so the only thing this note has to carry is the facts that
+ * lived in the dropped tool calls and nothing else.
+ */
+const DROPPED_INSTRUCTIONS =
+  'Record the concrete facts learned from these tool calls and their output: file paths, identifiers, names, numbers, settings, errors and decisions. These messages are being deleted; the rest of the conversation is kept verbatim.';
+
+/**
+ * Summarizes only what the judge dropped, by handing that subset back to
+ * Claude Code's own summarizer, so a detail that lived in a deleted tool
+ * result survives as a note in front of the verbatim messages. Returns `[]`
+ * when nothing was dropped, the summarizer skips, or the call fails: the
+ * verbatim messages are the result either way, and a missing note never costs
+ * the compaction.
+ */
+export async function summaryOfDropped(
+  $: { ui: { log: (text: string) => void } },
+  event: SessionCompactInput,
+  next: (event: SessionCompactInput) => Promise<SessionCompactResult>,
+  kept: readonly SessionMessage[],
+): Promise<SessionMessage[]> {
+  const keptSet = new Set<SessionMessage>(kept);
+  const dropped = event.messages.filter((message) => !keptSet.has(message));
+  if (dropped.length === 0) return [];
+  try {
+    const summarized = await next({
+      ...event,
+      messages: dropped,
+      instructions: DROPPED_INSTRUCTIONS,
+    });
+    const lead = 'messages' in summarized ? summarized.messages : undefined;
+    return lead ? [...lead] : [];
+  } catch (error) {
+    $.ui.log(
+      `summary of dropped messages failed, keeping verbatim only (${error instanceof Error ? error.message : String(error)})`,
+    );
+    return [];
+  }
 }
 
 export const register: Register = (on: On, options: PluginOptions) => {
@@ -490,8 +542,15 @@ export const register: Register = (on: On, options: PluginOptions) => {
         );
         return next(event);
       }
-      notify($, outcomeNotice(event.trigger, messages.length, event.messages.length, result));
-      return { messages };
+      const lead =
+        config.summarizeDropped && event.trigger !== 'precompute'
+          ? await summaryOfDropped($, event, next, messages)
+          : [];
+      notify(
+        $,
+        outcomeNotice(event.trigger, messages.length, event.messages.length, result, lead.length),
+      );
+      return { messages: [...lead, ...messages] };
     } catch (error) {
       notify(
         $,
