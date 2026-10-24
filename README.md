@@ -181,6 +181,14 @@ Turning on the `bashOutput` option adds opt-in trimming of long Bash output at
 the moment the command returns, described in `hooks/README.md`. It is off by
 default because it costs a round trip per long output.
 
+Turning on the `summarizeDropped` option hands the messages the judge dropped to
+Claude Code's own summarizer and puts that note in front of the kept messages, so
+a fact that lived only in a deleted tool result survives. It is off by default
+because it costs a summarizer call and, once on, the history is no longer
+summary-free: the kept messages are still verbatim, but the note in front of them
+is not. The speculative `precompute` pass never asks for one, and a summarizer
+that skips or fails costs the compaction nothing.
+
 To run from a checkout without installing: `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir .`
 from the repository root. No publishing step is required; the marketplace is
 just the repo's `.claude-plugin/marketplace.json`.
