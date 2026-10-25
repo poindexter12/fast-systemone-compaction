@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionCompactInput, SessionMessage } from 'claude-code';
+import type { CompactResult } from '../src/types.ts';
 import {
   archiveWriter,
   compactSession,
@@ -213,6 +214,36 @@ describe('compactSession', () => {
     await expect(
       compactSession(transcript(), { ...config, apiKey: 'k' }, async () => ({ status: 500, ok: false, text: 'x' })),
     ).rejects.toThrow(/500/);
+  });
+});
+
+describe('summarize', () => {
+  const resultWith = (stats: Partial<CompactResult['stats']>) =>
+    ({
+      stats: {
+        calls: 0,
+        kept: 0,
+        resultsDropped: 0,
+        callsDropped: 0,
+        pinned: 0,
+        protected: 0,
+        charsBefore: 100,
+        charsAfter: 50,
+        stateTokens: 10,
+        stateStage: 'full',
+        requests: 1,
+        ...stats,
+      },
+    }) as CompactResult;
+
+  it('reports calls kept because they state a standing constraint', () => {
+    expect(summarize(resultWith({ calls: 3, kept: 1, pinned: 1, protected: 1 }))).toContain(
+      '1 kept, 1 pinned, 1 protected',
+    );
+  });
+
+  it('leaves protected out when nothing was protected', () => {
+    expect(summarize(resultWith({ calls: 1, kept: 1 }))).not.toContain('protected');
   });
 });
 
