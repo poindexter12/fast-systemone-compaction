@@ -12,7 +12,18 @@ every tool call outside the pinned first and newest messages, two questions:
 whether the call should stay and whether its full output should stay. An
 item is kept when System One's probability reaches `keepThreshold`; a dropped result
 is truncated to its first `truncateHeadChars` characters plus a one-line note,
-and a dropped call disappears with its result.
+and a dropped call disappears with its result. A third question is asked once
+per message holding a candidate call: whether it states a standing rule or
+names unfinished work. A message scoring at least `protectThreshold` keeps every
+call in it, whatever their own scores say.
+
+Setting `summarizeDropped` to `true` hands the messages the judge dropped to
+Claude Code's own summarizer and puts that note in front of the kept messages,
+so a fact that lived only in a deleted tool result survives. The kept messages
+stay verbatim, but the history is no longer summary-free, and it costs a
+summarizer call, so it is off by default. The speculative `precompute` pass
+never asks for one, and a summarizer that skips or fails leaves the compaction
+as it would have been without it.
 
 Dropped output is not lost by default. Each one is written to
 `.claude/fast-systemone-compaction/result-<tool_use_id>.txt`, beside a
@@ -78,9 +89,11 @@ The plugin declares these `userConfig` values in
 | Option | Default |
 | --- | ---: |
 | `keepThreshold` | `0.5` |
+| `protectThreshold` | `0.7` |
 | `preserveRecentMessages` | `6` |
 | `compactAtPercent` | `60` |
 | `minReductionRatio` | `0.25` |
+| `summarizeDropped` | `false` |
 | `maxStateTokens` | `25000` |
 | `maxRequestTokens` | `30000` |
 | `maxRequestChars` | unset (no limit) |
@@ -97,7 +110,8 @@ through `TYPESAFE_API_KEY`. The environment variable is the recommended
 development setup.
 
 Every option except `apiKey`, `compactAtPercent`, `minReductionRatio`,
-`model` and `baseUrl` is passed straight to the library; see the root
+`summarizeDropped`, `archiveResults`, the three `bashOutput*` options, `model`
+and `baseUrl` is passed straight to the library; see the root
 README for what they do. The `session.compact` hook runs the System One requests
 concurrently. If System One fails, the response is malformed, the key is
 unavailable, the history cannot be fitted into the state budget, or the

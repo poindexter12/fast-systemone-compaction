@@ -103,6 +103,12 @@ method) and call `compact(messages, asker, options)`; `buildSystemOneRequest` an
 The building blocks (`collectToolCalls`, `fitState`, `batchCalls`,
 `decideCall`, `applyDecisions`) are exported too.
 
+The omp extension's helpers are exported as well: `askerFromJudge` adapts an
+omp judge to a `SystemOneAsker`, `fromAgentMessages` and `renderVerbatim` map
+omp agent messages in and render the kept span back out as text, and
+`loadOmpPluginSettings` and `ompTriggerTokens` read the extension's saved
+settings and omp's compaction trigger.
+
 `apiKey` defaults to `process.env.TYPESAFE_API_KEY`. Never commit the key or
 put it in a source file.
 
@@ -120,6 +126,7 @@ put it in a source file.
 | `preserveRecentMessages` | `6` | Newest messages never touched (the first is always kept) |
 | `maxStateTokens` | `25000` | Estimated token ceiling for the state |
 | `maxRequestTokens` | `30000` | Estimated ceiling for state plus one batch of questions |
+| `maxRequestChars` | unset | Exact ceiling on the serialised request, for an endpoint that caps the bytes it reads |
 | `truncateHeadChars` | `300` | Characters of a dropped tool result retained before its note |
 | `archive` | unset | Callback offered every dropped output; the path it returns is cited in the marker |
 

@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "tool": "codebase-mapper",
   "version": "2.17.0",
-  "mappedAt": "2026-10-23",
-  "gitCommit": "cb9bedda03acd9415d00591020234ef747a59a07",
+  "mappedAt": "2026-10-25",
+  "gitCommit": "c1876ef94a216654d66c92ebfa8ebdbbfedaf276",
   "structure": "graphify",
   "documents": [
     "architecture.md",
@@ -12,8 +12,8 @@
     "tech-landscape.md"
   ],
   "hashes": {
-    "INDEX.md": "221086c1e4ed75633d86617d66fe3923913614906fbcaf6811d0088032fd8755",
-    "architecture.md": "50d27e2be5719585fe055005a002921aec7d548ee9b907c3abd6e4ee1b28a3de",
+    "INDEX.md": "2e1b020059b8d0a20d9aadf2df9a7828bcf273fddf390f329dd091e8cc8fc73e",
+    "architecture.md": "d80aa85a7483a5b0a022fedfce4466af94611460467602eeba0a066719861286",
     "onboarding.md": "574833aee448a235ca19d66fe79eab034dc569bc41147509dd120ceaee0cd4ce",
     "patterns.md": "66dcbb0e04cd3ad0f60f59c38901723c28930a128fe58592e937cd52585ef8fe",
     "tech-landscape.md": "77bc31c1d78e82d3a65c72e949b73753a9be3b06893c46e04917ad99cdc71bfa"
