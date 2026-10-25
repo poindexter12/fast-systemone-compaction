@@ -1,6 +1,6 @@
 # Architecture
 
-*Last Updated: 2026-10-23*
+*Last Updated: 2026-10-25*
 
 ## Three artifacts, one tree
 
@@ -197,7 +197,12 @@ above the true length. It is left alone because it errs toward the safe side, an
   it takes every trigger the host dispatches: `manual` for `/compact`, `auto` at the context limit,
   and `precompute` for idle compaction, which is computed ahead of time and installed only if the
   conversation still leads. `outcomeNotice()` reads `event.trigger` so the toast does not claim a
-  precomputed result landed.
+  precomputed result landed. With `summarizeDropped` on (default off), a compaction that clears
+  `minReductionRatio` and is not `precompute` then calls `summaryOfDropped`, which hands only the
+  messages the judge removed back to `next()` with instructions to record their concrete facts, and
+  prepends whatever comes back to the kept messages. Nothing dropped, a skipped summary or a thrown
+  one all yield no note, never a fallback: the verbatim result stands either way. The summarizer is
+  the host's, so this sits in the hook rather than `src/`; no keep or drop decision changes.
 - **`turn.complete`** reads `$.session.usage()` and calls `$.session.compact()` once context passes
   `compactAtPercent` (default 60). A `compacting` flag guards against re-entry.
 - **`tool.call`**, matched on `{ tool: 'Bash' }`, is registered only when the `bashOutput` option is

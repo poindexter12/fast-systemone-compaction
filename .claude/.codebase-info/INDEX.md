@@ -1,14 +1,16 @@
 # fast-systemone-compaction : codebase map
 
-*Last Updated: 2026-10-23*
+*Last Updated: 2026-10-25*
 
 One repository, three artifacts. The `fast-systemone-compaction` npm package in `src/` decides what a
 coding-agent transcript can lose, by asking a scorer, for every tool call, whether the call and
 whether its full result still matter. Two adapters run that library against a live session: the
 Claude Code function-hook plugin in `hooks/` plus `.claude-plugin/`, which scores over TypeSafe's
 System One API on `session.compact`, and the oh-my-pi extension in `omp/`, which scores through
-omp's own built-in judge on `session_before_compact` and needs no TypeSafe key. Nothing is
-summarised: what survives is verbatim, and what does not is deleted.
+omp's own built-in judge on `session_before_compact` and needs no TypeSafe key. By default nothing
+is summarised: what survives is verbatim, and what does not is deleted. The Claude Code plugin's
+opt-in `summarizeDropped` puts a host-written note about the deleted span in front of the verbatim
+messages.
 
 This is a deliberately divergent fork of `tamaratran/fast-jev-compaction`, published under its own
 name because the protocol is System One and `jev-latest` is only one model that speaks it.
