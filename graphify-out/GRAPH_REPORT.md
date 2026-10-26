@@ -1,15 +1,17 @@
 # Graph Report - fast-jev-compaction  (2026-10-25)
 
 ## Corpus Check
-- cluster-only mode — file stats not available
+- 53 files · ~93,573 words
+- Verdict: corpus is large enough that graph structure adds value.
+- Unclassified: 4 file(s) not represented in the graph (top: (none) 2, .toml 1, .plist 1)
 
 ## Summary
-- 964 nodes · 1430 edges · 38 communities (25 shown, 13 thin omitted)
+- 964 nodes · 1432 edges · 38 communities (25 shown, 13 thin omitted)
 - Extraction: 93% EXTRACTED · 7% INFERRED · 0% AMBIGUOUS · INFERRED: 99 edges (avg confidence: 0.94)
-- Token cost: 65,167 input · 566 output
+- Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `c1876ef9`
+- Built from commit: `8a9df94a`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -56,24 +58,24 @@
 2. `fitState()` - 20 edges
 3. `trimOutputAttempt()` - 19 edges
 4. `compact()` - 18 edges
-5. `SystemOneAsker` - 17 edges
-6. `register()` - 17 edges
+5. `register()` - 17 edges
+6. `SystemOneAsker` - 17 edges
 7. `Chunk` - 16 edges
 8. `Install and usage` - 15 edges
 9. `ChunkView` - 14 edges
-10. `estimateTokens()` - 13 edges
+10. `fastSystemOneCompaction()` - 13 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `Endpoint routing` --references--> `buildSystemOneRequest()`  [INFERRED]
-  .claude/.codebase-info/architecture.md → src/request.ts
 - `The two budgets` --references--> `resolveOptions()`  [INFERRED]
   .claude/.codebase-info/architecture.md → src/compact.ts
-- `Three artifacts, one tree` --references--> `SystemOneAsker`  [INFERRED]
-  .claude/.codebase-info/architecture.md → src/types.ts
-- `Common tasks` --references--> `SystemOneAsker`  [INFERRED]
-  .claude/.codebase-info/onboarding.md → src/types.ts
-- `Testing` --references--> `SystemOneAsker`  [INFERRED]
-  .claude/.codebase-info/patterns.md → src/types.ts
+- `Endpoint routing` --references--> `buildSystemOneRequest()`  [INFERRED]
+  .claude/.codebase-info/architecture.md → src/request.ts
+- `Common tasks` --references--> `resolveHookConfig()`  [INFERRED]
+  .claude/.codebase-info/onboarding.md → hooks/fast-systemone.ts
+- `Testing` --references--> `resolveHookConfig()`  [INFERRED]
+  .claude/.codebase-info/patterns.md → hooks/fast-systemone.ts
+- `Source of truth` --references--> `resolveHookConfig()`  [INFERRED]
+  .claude/.codebase-info/tech-landscape.md → hooks/fast-systemone.ts
 
 ## Import Cycles
 - None detected.
@@ -181,7 +183,7 @@ Cohesion: 0.25
 Nodes (3): messages, Message, PluginOptions
 
 ## Knowledge Gaps
-- **32 isolated node(s):** `.badge`, `.body`, `.content`, `.shownText`, `.tint` (+27 more)
+- **32 isolated node(s):** `AppKit`, `SwiftUI`, `user`, `assistant`, `toolHeader` (+27 more)
   These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 669 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **13 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -189,10 +191,10 @@ Nodes (3): messages, Message, PluginOptions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `vitest` connect `omp Compaction Extension` to `Hook Session Compaction`, `npm Package Manifest`, `Library Integration Tests`, `Token Estimation and Budgets`?**
-  _High betweenness centrality (0.075) - this node is a cross-community bridge._
+  _High betweenness centrality (0.074) - this node is a cross-community bridge._
 - **Are the 8 inferred relationships involving `fitState()` (e.g. with `Pinning` and `The state-fitting ladder`) actually correct?**
   _`fitState()` has 8 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `.badge`, `.body`, `.content` to the rest of the system?**
+- **What connects `AppKit`, `SwiftUI`, `user` to the rest of the system?**
   _32 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Claude Code Host Types` be split into smaller, more focused modules?**
   _Cohesion score 0.004424778761061947 - nodes in this community are weakly interconnected._
